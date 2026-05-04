@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Historical Timeline 3D | 歴史探究の旅</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Noto Sans JP', sans-serif;
+            color: white;
+        }
+        canvas {
+            display: block;
+            transition: filter 1.5s ease;
+        }
+        .canvas-blur {
+            filter: blur(10px) brightness(0.5);
+        }
+        .glass {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-dark {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .text-glow {
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+        #ui-layer {
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1s ease;
+        }
+        #ui-layer.visible {
+            opacity: 1;
+        }
+        #ui-layer button, #ui-layer .interactive {
+            pointer-events: auto;
+        }
+        .scroll-indicator {
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-10px);}
+            60% {transform: translateY(-5px);}
+        }
+
+        /* Login Overlay Styles */
+        #login-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 1s ease;
+        }
+        #login-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(1.1);
+        }
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            padding: 3rem;
+            border-radius: 2rem;
+            text-align: center;
+        }
+        .input-field {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 0.75rem 1rem;
+            border-radius: 0.75rem;
+            width: 100%;
+            margin-bottom: 1rem;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        .input-field:focus {
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+        .login-btn {
+            background: white;
+            color: black;
+            font-weight: bold;
+            padding: 0.75rem;
+            border-radius: 0.75rem;
+            width: 100%;
+            transition: transform 0.2s, background 0.2s;
+        }
+        .login-btn:hover {
+            background: #e2e2e2;
+            transform: translateY(-2px);
+        }
+        .login-btn:active {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Login Overlay -->
+    <div id="login-overlay">
+        <div class="login-card glass-dark">
+            <div class="mb-8">
+                <div class="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <i data-lucide="compass" class="w-8 h-8 text-white"></i>
+                </div>
+                <h2 class="text-2xl font-bold tracking-tight">歴史探究の旅へ</h2>
+                <p class="text-gray-400 text-sm mt-2">パスコードを入力してください</p>
+            </div>
+            
+            <form id="login-form">
+                <input type="text" id="user-name" placeholder="お名前" class="input-field" required>
+                <input type="password" id="passcode" placeholder="パスコード (2026)" class="input-field" required>
+                <button type="submit" class="login-btn mt-4">探究を始める</button>
+                <p id="login-error" class="text-red-400 text-xs mt-4 opacity-0">パスコードが違います</p>
+            </form>
+            
+            <div class="mt-8 text-[10px] text-gray-500 uppercase tracking-widest">
+                Educational Prototype / Seishokaichi
+            </div>
+        </div>
+    </div>
+
+    <!-- UI Overlay Layer -->
+    <div id="ui-layer" class="fixed inset-0 z-10 flex flex-col justify-between p-8">
+        <!-- Header -->
+        <header class="flex justify-between items-start">
+            <div class="interactive">
+                <h1 class="text-3xl font-bold tracking-tighter text-glow">HISTORICAL TIMELINE 3D</h1>
+                <p class="text-gray-400 text-sm mt-1"><span id="welcome-name"></span> さん、ようこそ</p>
+            </div>
+            <div class="interactive flex gap-4">
+                <button id="reset-btn" class="glass px-4 py-2 rounded-full text-sm flex items-center gap-2 hover:bg-white/10 transition">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> リセット
+                </button>
+            </div>
+        </header>
+
+        <!-- Center Message (Intro) -->
+        <div id="intro-msg" class="absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity duration-1000">
+            <div class="text-center">
+                <p class="text-xl font-light tracking-widest text-gray-300 mb-4">マウスホイールで歴史を遡る</p>
+                <div class="scroll-indicator inline-block">
+                    <i data-lucide="chevron-down" class="w-8 h-8 text-white/50"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Panel (Hidden by default) -->
+        <div id="detail-panel" class="absolute top-1/2 right-8 -translate-y-1/2 w-80 glass p-6 rounded-2xl opacity-0 translate-x-10 transition-all duration-500 interactive">
+            <button id="close-panel" class="absolute top-4 right-4 text-gray-400 hover:text-white">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div id="panel-content">
+                <span id="event-year" class="text-blue-400 font-bold text-lg">1192</span>
+                <h2 id="event-title" class="text-2xl font-bold mt-1 mb-4 leading-tight">鎌倉幕府の成立</h2>
+                <p id="event-desc" class="text-gray-300 text-sm leading-relaxed mb-6">
+                    源頼朝が征夷大将軍に任命され、日本初の武家政権が誕生しました。
+                </p>
+                <div class="flex items-center gap-2 text-xs text-gray-500 italic">
+                    <i data-lucide="info" class="w-3 h-3"></i>
+                    スクロールを続けると次の時代へ
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Info -->
+        <footer class="flex justify-between items-end">
+            <div class="interactive text-xs text-gray-500">
+                &copy; 2026 Ikeda Antigravity App Builder
+            </div>
+            <div id="current-period" class="interactive glass px-6 py-3 rounded-xl">
+                <span class="text-gray-400 text-xs block uppercase tracking-widest mb-1">Current Period</span>
+                <span id="period-name" class="text-xl font-bold">現代</span>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // --- Data ---
+        const historyData = [
+            { id: 1, year: 1192, title: "鎌倉幕府の成立", desc: "源頼朝が征夷大将軍となり、武家政治の基礎を築きました。封建制度の始まりです。", pos: { z: -100, x: 5, y: 2 }, color: 0x3b82f6 },
+            { id: 2, year: 1543, title: "鉄砲の伝来", desc: "種子島にポルトガル船が漂着。火縄銃が伝わり、その後の戦国時代の様相を一変させました。", pos: { z: -300, x: -6, y: -2 }, color: 0xef4444 },
+            { id: 3, year: 1600, title: "関ヶ原の戦い", desc: "「天下分け目の戦い」と呼ばれ、徳川家康率いる東軍が勝利。江戸幕府の覇権が決定的になりました。", pos: { z: -500, x: 4, y: -3 }, color: 0xf59e0b },
+            { id: 4, year: 1853, title: "ペリー来航", desc: "浦賀にアメリカの黒船が出現。日本の鎖国政策が終わり、激動の幕末へと突入します。", pos: { z: -700, x: -5, y: 3 }, color: 0x8b5cf6 },
+            { id: 5, year: 1868, title: "明治維新", desc: "新政府が誕生し、封建制度から近代国家への大転換。憲法制定や文明開化が進みました。", pos: { z: -900, x: 7, y: -1 }, color: 0x10b981 },
+            { id: 6, year: 1945, title: "終戦・平和への道", desc: "第二次世界大戦が終結。荒廃から立ち上がり、民主主義と平和を重んじる新たな日本が始まりました。", pos: { z: -1100, x: -4, y: -4 }, color: 0xec4899 },
+            { id: 7, year: 2026, title: "未来を創る現在", desc: "AIやテクノロジーが進歩し、私たちの手で新しい教育、新しい歴史を紡いでいく時代です。", pos: { z: -1300, x: 0, y: 0 }, color: 0x6366f1 }
+        ];
+
+        // --- Login Logic ---
+        const CORRECT_PASSCODE = "2026";
+        const loginOverlay = document.getElementById('login-overlay');
+        const loginForm = document.getElementById('login-form');
+        const uiLayer = document.getElementById('ui-layer');
+        const canvasContainer = document.getElementById('canvas-container');
+
+        function checkAuth() {
+            const savedUser = localStorage.getItem('hist3d_user');
+            if (savedUser) {
+                enterApp(savedUser);
+            } else {
+                // Blur background initially
+                setTimeout(() => {
+                    if (renderer) renderer.domElement.classList.add('canvas-blur');
+                }, 100);
+            }
+        }
+
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('user-name').value;
+            const code = document.getElementById('passcode').value;
+            const errorMsg = document.getElementById('login-error');
+
+            if (code === CORRECT_PASSCODE) {
+                localStorage.setItem('hist3d_user', name);
+                enterApp(name);
+            } else {
+                errorMsg.style.opacity = '1';
+                gsap.fromTo(errorMsg, { x: -10 }, { x: 10, duration: 0.1, repeat: 5, yoyo: true });
+            }
+        });
+
+        function enterApp(name) {
+            document.getElementById('welcome-name').innerText = name;
+            loginOverlay.classList.add('hidden');
+            uiLayer.classList.add('visible');
+            
+            if (renderer) {
+                renderer.domElement.classList.remove('canvas-blur');
+            }
+            
+            // Start intro animation
+            gsap.from("#ui-layer h1", { y: -20, opacity: 0, duration: 1, delay: 0.5 });
+            gsap.from("#current-period", { y: 20, opacity: 0, duration: 1, delay: 0.8 });
+        }
+
+        // --- Three.js Setup ---
+        let scene, camera, renderer, raycaster, mouse;
+        let starField, timelineLine, eventMeshes = [];
+        let targetZ = 0;
+        let currentZ = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.002);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+            camera.position.z = 10;
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            createBackground();
+            createTimeline();
+            createEvents();
+            setupLights();
+
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('wheel', onMouseWheel);
+            window.addEventListener('click', onClick);
+            
+            // UI elements
+            document.getElementById('close-panel').addEventListener('click', () => {
+                hidePanel();
+            });
+            document.getElementById('reset-btn').addEventListener('click', () => {
+                targetZ = 0;
+                hidePanel();
+                gsap.to(camera.position, { z: 10, duration: 2, ease: "expo.out" });
+            });
+
+            // Logout (Reset Auth)
+            document.getElementById('reset-btn').addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                localStorage.removeItem('hist3d_user');
+                location.reload();
+            });
+
+            lucide.createIcons();
+            checkAuth(); // Check if user is already logged in
+            animate();
+        }
+
+        function createBackground() {
+            // Stars
+            const vertices = [];
+            for (let i = 0; i < 15000; i++) {
+                const x = THREE.MathUtils.randFloatSpread(2000);
+                const y = THREE.MathUtils.randFloatSpread(2000);
+                const z = THREE.MathUtils.randFloatSpread(4000);
+                vertices.push(x, y, z);
+            }
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({ color: 0x888888, size: 0.7, transparent: true, opacity: 0.8 });
+            starField = new THREE.Points(geometry, material);
+            scene.add(starField);
+        }
+
+        function createTimeline() {
+            // Timeline line
+            const points = [];
+            points.push(new THREE.Vector3(0, 0, 50));
+            points.push(new THREE.Vector3(0, 0, -2000));
+            
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.3 });
+            timelineLine = new THREE.Line(geometry, material);
+            scene.add(timelineLine);
+
+            // Adding grid helpers along the line
+            for (let z = 0; z > -2000; z -= 100) {
+                const grid = new THREE.GridHelper(20, 10, 0x222222, 0x111111);
+                grid.rotation.x = Math.PI / 2;
+                grid.position.z = z;
+                scene.add(grid);
+            }
+        }
+
+        function createEvents() {
+            historyData.forEach(event => {
+                // Group to hold mesh and label
+                const group = new THREE.Group();
+                group.position.set(event.pos.x, event.pos.y, event.pos.z);
+
+                // Main card mesh
+                const geometry = new THREE.BoxGeometry(4, 2.5, 0.2);
+                const material = new THREE.MeshPhongMaterial({ 
+                    color: event.color, 
+                    emissive: event.color,
+                    emissiveIntensity: 0.2,
+                    transparent: true,
+                    opacity: 0.9
+                });
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.userData = event;
+                
+                // Outer glow effect
+                const outlineGeo = new THREE.BoxGeometry(4.2, 2.7, 0.1);
+                const outlineMat = new THREE.MeshBasicMaterial({ color: event.color, wireframe: true, transparent: true, opacity: 0.3 });
+                const outline = new THREE.Mesh(outlineGeo, outlineMat);
+                
+                group.add(mesh);
+                group.add(outline);
+                scene.add(group);
+                
+                eventMeshes.push(mesh);
+            });
+        }
+
+        function setupLights() {
+            const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambient);
+            
+            const pointLight = new THREE.PointLight(0xffffff, 1);
+            camera.add(pointLight); // Light moves with camera
+            scene.add(camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onMouseWheel(event) {
+            targetZ -= event.deltaY * 0.5;
+            // Bound the timeline
+            if (targetZ > 10) targetZ = 10;
+            if (targetZ < -1500) targetZ = -1500;
+            
+            // Hide intro if moved
+            if (Math.abs(targetZ) > 10) {
+                document.getElementById('intro-msg').style.opacity = '0';
+            }
+            
+            // Update period indicator based on Z
+            updatePeriodIndicator();
+        }
+
+        function onClick(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(eventMeshes);
+
+            if (intersects.length > 0) {
+                const eventData = intersects[0].object.userData;
+                showPanel(eventData);
+                
+                // Focus camera on the clicked event
+                gsap.to(camera.position, { 
+                    x: eventData.pos.x, 
+                    y: eventData.pos.y, 
+                    z: eventData.pos.z + 8, 
+                    duration: 1.5, 
+                    ease: "power2.out" 
+                });
+                targetZ = eventData.pos.z + 8;
+            }
+        }
+
+        function showPanel(data) {
+            const panel = document.getElementById('detail-panel');
+            document.getElementById('event-year').innerText = data.year;
+            document.getElementById('event-title').innerText = data.title;
+            document.getElementById('event-desc').innerText = data.desc;
+            document.getElementById('event-year').style.color = `#${data.color.toString(16).padStart(6, '0')}`;
+            
+            panel.style.opacity = '1';
+            panel.style.transform = 'translateY(-50%) translateX(0)';
+            panel.style.pointerEvents = 'auto';
+        }
+
+        function hidePanel() {
+            const panel = document.getElementById('detail-panel');
+            panel.style.opacity = '0';
+            panel.style.transform = 'translateY(-50%) translateX(20px)';
+            panel.style.pointerEvents = 'none';
+        }
+
+        function updatePeriodIndicator() {
+            let period = "現代";
+            const z = camera.position.z;
+            
+            if (z < -1200) period = "未来への展望";
+            else if (z < -1000) period = "戦後・現代";
+            else if (z < -800) period = "明治・大正・昭和";
+            else if (z < -600) period = "幕末・開国";
+            else if (z < -400) period = "江戸時代";
+            else if (z < -200) period = "戦国時代";
+            else if (z < -50) period = "鎌倉・室町";
+            else period = "現代";
+            
+            document.getElementById('period-name').innerText = period;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Smooth camera movement
+            currentZ = camera.position.z;
+            const diff = targetZ - currentZ;
+            camera.position.z += diff * 0.05;
+            
+            // Subtle floating animation for events
+            const time = Date.now() * 0.001;
+            eventMeshes.forEach((mesh, i) => {
+                mesh.parent.position.y += Math.sin(time + i) * 0.005;
+                mesh.rotation.y = Math.sin(time * 0.5 + i) * 0.1;
+            });
+
+            // Stars rotation
+            if (starField) {
+                starField.rotation.z += 0.0002;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
